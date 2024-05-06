@@ -26,6 +26,9 @@ money_games_last_7d
 win_amount_to_date
 win_amount_last_14d
 win_amount_last_7d
+minutes_to_withdraw_since_first_payment
+withdrawn_attempted_ammount_to_date
+withdrawn_attempt_to_date
 local_time_before_6
 local_time_6_to_12
 local_time_12_to_18
