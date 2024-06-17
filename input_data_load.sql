@@ -93,7 +93,7 @@ where cast(date_format(b."register_time", '%Y-%m-%d') as varchar) > '2023-12-01'
 group by 1,2
  )
  
- -- I need to generate rows for the non-activity cases since they are users moments in time where dipsutes can disputed 
+ -- Generate rows for the non-activity cases since they are users moments in time where dipsutes can disputed 
 , base as (
     select * from (select matuirity_day from ios_payments_disputes group by 1)
         cross join (select "#account_id","register_time" FROM ios_payments_disputes where cast(date_format("register_time", '%Y-%m-%d') as varchar) > '2023-11-01' group by 1,2) )
