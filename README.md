@@ -26,3 +26,17 @@ not materialised in app revenue?
 - Write basic code 
 
 - Have all the tools necessary to solve the problem at hand. 
+
+
+# Next step 
+
+1. Find good rules 
+2. Generate clarity around the project 
+
+- Results from the customer interaction data. 
+
+
+
+- Results from the Bundle ID data. 
+
+- Results from the profiling data. 
