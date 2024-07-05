@@ -1,16 +1,14 @@
 
--- DATASET EXPLANATION (Current Rule identification data source 1)
--- Every row is a full day (24 hours) since the end of the previous day (or the install date) and the end of the row-reference day (REgister time + matuirity day). 
--- The time since payment is not exact. So it can be understood the following way: days since install since the current end of the day and the end of the day of the first payment date 
--- Date start is December and users taht take ages to make a payment are not included in the dataframe. 
+-- You need to change this part a little bit (You need to add all the in)
 
 -- Just get the payment information necessary for later queries (Verified)
 with payment_aux as (
 select "#account_id", "#event_time", "pay_id", "pay_amount"
 from ta.v_event_59
 where "$part_event" = 'order_pay'
-    and cast(date_format("#event_time", '%Y-%m-%d') as varchar) > '2023-12-01'
+    and cast(date_format("#event_time", '%Y-%m-%d') as varchar) > '2024-01-01'
     and ("is_true" is null or "is_true" = true)
+    and ${PartDate:date1}
     and "#event_time" < date_add('day', -30, current_date)
     and "$part_date" is not null)
     
@@ -26,16 +24,17 @@ select
     , c."#event_time"                                                                                  as "dispute_time"
     , a."pay_amount"    , floor(date_diff('minute', "register_time", a."#event_time")/(24*60))         as matuirity_day
 from payment_aux as a
-  join ta.v_user_59 as b                                                                                          on a."#account_id" = b."#account_id"   and  a."#event_time" > b."register_time"
-  left join (select * from ta.v_event_59 where "$part_event" = 'pay_dispute' and "$part_date" is not null) as c   on a.pay_id        = c.pay_id          and  a."#account_id" = c."#account_id"
-where cast(date_format(b."register_time", '%Y-%m-%d') as varchar) > '2023-12-01'
-  and b."register_time" < date_add('day', -37, current_date)
-  and b."bundle_id" = 'com.acorncasino.slots')
+  join (select * from ta.v_user_59 
+        where "register_time" > date('2024-01-01') and "register_time" < date_add('day', -37, current_date) and "bundle_id" in ('com.acorncasino.slots', 'com.asselin.luckylegends', 'com.evl.woc')) as b 
+            on a."#account_id" = b."#account_id"   and  a."#event_time" > b."register_time"
+  left join (select * from ta.v_event_59 where "$part_event" in ('pay_dispute', 'fraud') and "$part_date" is not null) as c   on a.pay_id        = c.pay_id          and  a."#account_id" = c."#account_id"
+)
 
 -- Get the matuirity date and register time to add to payment data (Verified for optimisation)
 , activity as (
 select    
     a."#account_id"                                                                                    as act_account_id
+    , b."bundle_id"
     , floor(date_diff('minute', "register_time", a."#event_time")/(24*60))                             as act_matuirity_day
     , min(a."#event_time")                                                                             as first_game
     , count(distinct "spin_id")                                                                        as games_played
@@ -47,22 +46,22 @@ select
     , sum("bet_money")                                                                                 as bet_money
     , max("bet_money")                                                                                 as max_bet
     , sum(if("bet_money" > 0, "win_amount", 0))                                                        as money_win
-from (select * from ta.v_event_59 where "$part_event" = 'game_play' and "$part_date" is not null and "#event_time" < date_add('day', -30, current_date)) as a
-  join (select * from ta.v_user_59 where "bundle_id" = 'com.acorncasino.slots' and "#account_id" in (select distinct "#account_id" from payment_aux)) as b
+-- from (select * from ta.v_event_59 where "$part_event" = 'game_play' and "$part_date" is not null and "#event_time" < date_add('day', -30, current_date)) as a
+from (select * from ta.v_event_59 where "$part_event" = 'game_play' and ${PartDate:date1} and "#event_time" < date_add('day', -30, current_date)) as a
+  join (select * from ta.v_user_59 where "#account_id" in (select distinct "#account_id" from ios_payments_disputes) and "register_time" ${Time:time}) as b
         on a."#account_id" = b."#account_id"   and  a."#event_time" > b."register_time"
-where cast(date_format(b."register_time", '%Y-%m-%d') as varchar) > '2023-12-01'
- group by 1,2
+ group by 1,2,3
  )
 
 -- OKay 
 , cash_withdrawals_success as (
 select "#account_id","withdraw_id","#event_time","amount","withdraw_fee"
-from v_event_59 where "$part_event"='withdraw_success' and "$part_date" is not null and cast(date_format("#event_time", '%Y-%m-%d') as varchar) > '2023-12-01')
+from v_event_59 where "$part_event"='withdraw_success' and ${PartDate:date1} and "#event_time" ${Time:time})
 
 -- OKay 
 , cash_withdrawals_applied as (
 select "#account_id","withdraw_id","#event_time","amount","withdraw_fee"
-from v_event_59 where "$part_event"='withdraw_apply' and "$part_date" is not null and cast(date_format("#event_time", '%Y-%m-%d') as varchar) > '2023-12-01')
+from v_event_59 where "$part_event"='withdraw_apply' and ${PartDate:date1} and "#event_time" ${Time:time})
 
 -- OKay 
 , withdrawals_aux as (
@@ -89,14 +88,36 @@ select
 from withdrawals_aux as a
   join ios_payments_disputes as b
         on a."#account_id" = b."#account_id" and a.withdrawal_apply_time > b."register_time"
-where cast(date_format(b."register_time", '%Y-%m-%d') as varchar) > '2023-12-01'
+where "register_time" ${Time:time}
 group by 1,2
  )
  
- -- Generate rows for the non-activity cases since they are users moments in time where dipsutes can disputed 
+ ,  customer_service_aux as (
+select  "#account_id", "#event_time"
+from v_event_59
+    where "$part_event" = 'ticket'
+    and "$part_date" is not null
+)
+
+, customer_service as (
+select
+    a."#account_id"                                                                                    as cs_account_id
+    , floor(date_diff('minute', "register_time", "#event_time")/(24*60))                               as cs_matuirity_day
+    , count(distinct b."#event_time")                                                                  as customer_service_interactions
+    , max(b."#event_time")                                                                             as last_customer_service_interaction  
+from (select * from ta.v_user_59 where cast(date_format(date_add('hour', 8, "register_time"), '%Y-%m-%d') as varchar) >= '2024-04-01' and "#account_id" in (select distinct "#account_id" from ios_payments_disputes)) as a
+    join customer_service_aux as b
+        on a."#account_id" = b."#account_id"
+            and a."register_time" < b."#event_time"
+group by 1,2
+) 
+
+-- select * from customer_service limit
+
+ -- I need to generate rows for the non-activity cases since they are users moments in time where dipsutes can disputed 
 , base as (
     select * from (select matuirity_day from ios_payments_disputes group by 1)
-        cross join (select "#account_id","register_time" FROM ios_payments_disputes where cast(date_format("register_time", '%Y-%m-%d') as varchar) > '2023-11-01' group by 1,2) )
+        cross join (select "#account_id","register_time" FROM ios_payments_disputes where "register_time" ${Time:time} group by 1,2) )
 
 , final_out_pre_filter as (
 select
@@ -129,78 +150,84 @@ group by 1, 2, base.matuirity_day, first_payment
 , output_aux_2 as (
 select
     "#account_id"
+    , max(activity."bundle_id") over (partition by "#account_id")                                                                                               as bundle_id
     , "register_time"
     , matuirity_day
     , paying_matuirity
-    , date_diff('minute', "register_time", (min(first_game) over(partition by "#account_id")))                                                          as minutes_to_play
-    , date_diff('minute', "register_time", (min(first_pay_tmp) over(partition by "#account_id")))                                                       as minutes_to_payment
-    , date_diff('minute', "register_time", (min(first_pay_tmp) over(partition by "#account_id")))
-        - date_diff('minute', "register_time", (min(first_game) over(partition by "#account_id")))                                                      as minutes_to_pay_since_first_game
-    , matuirity_day - (date_diff('day', "register_time", (min(first_pay_tmp) over(partition by "#account_id"))))                                        as pay_matuirity
-
-    , sum(new_payments) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                       as payments_to_date
-    , sum(new_payments) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row)                              as payments_last_14d
-    , sum(new_payments) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row)                               as payments_last_7d
-    , sum(new_payments) over (partition by "#account_id" order by matuirity_day rows between 3 preceding and current row)                               as payments_last_3d
-    , sum(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                              as spent_to_date
-    , sum(spent) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row)                                     as spent_last_14d
-    , sum(spent) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row)                                      as spent_last_7d
-    , sum(spent) over (partition by "#account_id" order by matuirity_day rows between 3 preceding and current row)                                      as spent_last_3d
-
-    , round(avg(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row) , 2)                   as daily_spent_to_date
-    , round(avg(spent) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row)         , 2)                   as daily_spent_last_7_d
-    , round(avg(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 13 following), 2)                   as daily_spent_first_14d
-    , round(avg(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 7 following) , 2)                   as daily_spent_first_7d
-    , round(avg(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 0 following) , 2)                   as daily_spent_first_1d
-
-    , max(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                              as max_daily_spent
-    , max(highest_payment) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                    as max_payment
-    , array_agg(if(new_payments > 0, 1, 0)) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)   as daily_payment_history_binary
-    , array_agg(new_payments) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                 as daily_payment_history_count -- You can find the most common
-    , sum(games_played) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                       as games_to_date
-    , sum(games_played) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row)                              as games_last_14d
-    , sum(games_played) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row)                               as games_last_7d
-    , max(games_played) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                       as max_games_daily_games
-
-    , round(avg(games_played) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 13 following), 2)            as daily_games_first_14d
-    , round(avg(games_played) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 7 following) , 2)            as daily_games_first_7d
-    , round(avg(games_played) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 0 following) , 2)            as daily_games_first_1d
-
-    , array_agg(if(games_played > 0, 1, 0)) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)   as retention_sequence
-    , array_agg(coalesce(games_played, 0)) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)    as games_sequence
-    , array_agg(if(bet_money > 0, 1, 0)) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)      as days_betting_money_sequence
-    , array_agg(if(bet_money > 50, 1, 0)) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)     as days_50_usd_bet_money_sequence
-
-    , sum(money_games) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                        as money_games_to_date
-    , sum(money_games) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row)                               as money_games_last_14d
-    , sum(money_games) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row)                                as money_games_last_7d
-
-    , round(sum(bet_money) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row), 1)                as bet_money_to_date
-    , round(sum(bet_money) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row), 1)                       as bet_money_last_14d
-    , round(sum(bet_money) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row), 1)                        as bet_money_last_7d
-    , round(sum(money_win) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row), 2)                as win_amount_to_date
-    , round(sum(money_win) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row), 2)                       as win_amount_last_14d
-    , round(sum(money_win) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row), 2)                        as win_amount_last_7d
-    , max(max_bet)   over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                          as max_bet
-    , if(date_diff('minute', limit_time, min(first_dispute_tmp) over(partition by "#account_id")) < 0, 1, 0)                                            as past_disputer -- Describes any dispute made between the d21 and d 51 + ealier disputes
-    , if(date_diff('minute', limit_time, min(first_dispute_tmp) over(partition by "#account_id")) between 0 and 30*24*60, 1, 0)                         as new_disputer_30d -- Describes any dispute made between the d21 and d 51 + ealier disputes
+    , date_diff('minute', "register_time", (min(first_game) over(partition by "#account_id")))                                                                  as minutes_to_play
+    , date_diff('minute', "register_time", (min(first_pay_tmp) over(partition by "#account_id")))                                                               as minutes_to_payment
+    , date_diff('minute', "register_time", (min(first_pay_tmp) over(partition by "#account_id")))       
+        - date_diff('minute', "register_time", (min(first_game) over(partition by "#account_id")))                                                              as minutes_to_pay_since_first_game
+    , matuirity_day - (date_diff('day', "register_time", (min(first_pay_tmp) over(partition by "#account_id"))))                                                as pay_matuirity
+        
+    , sum(new_payments) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                               as payments_to_date
+    , sum(new_payments) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row)                                      as payments_last_14d
+    , sum(new_payments) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row)                                       as payments_last_7d
+    , sum(new_payments) over (partition by "#account_id" order by matuirity_day rows between 3 preceding and current row)                                       as payments_last_3d
+    , sum(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                                      as spent_to_date
+    , sum(spent) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row)                                             as spent_last_14d
+    , sum(spent) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row)                                              as spent_last_7d
+    , sum(spent) over (partition by "#account_id" order by matuirity_day rows between 3 preceding and current row)                                              as spent_last_3d
+        
+    , round(avg(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row) , 2)                           as daily_spent_to_date
+    , round(avg(spent) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row)         , 2)                           as daily_spent_last_7_d
+    , round(avg(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 13 following), 2)                           as daily_spent_first_14d
+    , round(avg(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 7 following) , 2)                           as daily_spent_first_7d
+    , round(avg(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 0 following) , 2)                           as daily_spent_first_1d
+        
+    , max(spent) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                                      as max_daily_spent
+    , max(highest_payment) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                            as max_payment
+    , array_agg(if(new_payments > 0, 1, 0)) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)           as daily_payment_history_binary
+    , array_agg(new_payments) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                         as daily_payment_history_count -- You can find the most common
+    , sum(games_played) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                               as games_to_date
+    , sum(games_played) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row)                                      as games_last_14d
+    , sum(games_played) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row)                                       as games_last_7d
+    , max(games_played) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                               as max_games_daily_games
+        
+    , round(avg(games_played) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 13 following), 2)                    as daily_games_first_14d
+    , round(avg(games_played) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 7 following) , 2)                    as daily_games_first_7d
+    , round(avg(games_played) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and 0 following) , 2)                    as daily_games_first_1d
+        
+    , array_agg(if(games_played > 0, 1, 0)) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)           as retention_sequence
+    , array_agg(coalesce(games_played, 0)) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)            as games_sequence
+    , array_agg(if(bet_money > 0, 1, 0)) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)              as days_betting_money_sequence
+    , array_agg(if(bet_money > 50, 1, 0)) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)             as days_50_usd_bet_money_sequence
+        
+    , sum(money_games) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                                as money_games_to_date
+    , sum(money_games) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row)                                       as money_games_last_14d
+    , sum(money_games) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row)                                        as money_games_last_7d
+        
+    , round(sum(bet_money) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row), 1)                        as bet_money_to_date
+    , round(sum(bet_money) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row), 1)                               as bet_money_last_14d
+    , round(sum(bet_money) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row), 1)                                as bet_money_last_7d
+    , round(sum(money_win) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row), 2)                        as win_amount_to_date
+    , round(sum(money_win) over (partition by "#account_id" order by matuirity_day rows between 14 preceding and current row), 2)                               as win_amount_last_14d
+    , round(sum(money_win) over (partition by "#account_id" order by matuirity_day rows between 7 preceding and current row), 2)                                as win_amount_last_7d
+    , max(max_bet)   over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)                                  as max_bet
+    , if(date_diff('minute', limit_time, min(first_dispute_tmp) over(partition by "#account_id")) < 0, 1, 0)                                                    as past_disputer -- Describes any dispute made between the d21 and d 51 + ealier disputes
+    , if(date_diff('minute', limit_time, min(first_dispute_tmp) over(partition by "#account_id")) between 0 and 30*24*60, 1, 0)                                 as new_disputer_30d -- Describes any dispute made between the d21 and d 51 + ealier disputes
+    , max(last_customer_service_interaction) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row)          as last_customer_service_interaction
+    , round(sum(coalesce(customer_service_interactions, 0)) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row), 2)    as customer_service_interactions
     
+    -- , round(sum(money_win) over (partition by "#account_id" order by matuirity_day rows between unbounded preceding and current row), 2)                as win_amount_to_date
 from final_out_pre_filter
     left join activity
-        on final_out_pre_filter."#account_id" = activity.act_account_id and final_out_pre_filter.matuirity_day = activity.act_matuirity_day
+        on final_out_pre_filter."#account_id" = activity.act_account_id   and final_out_pre_filter.matuirity_day = activity.act_matuirity_day
     left join withdrawals as w
-        on final_out_pre_filter."#account_id" = w.w_account_id          and final_out_pre_filter.matuirity_day = w.w_matuirity_day
+        on final_out_pre_filter."#account_id" = w.w_account_id            and final_out_pre_filter.matuirity_day = w.w_matuirity_day
+    left join customer_service as cs
+        on final_out_pre_filter."#account_id" = cs.cs_account_id          and final_out_pre_filter.matuirity_day = cs.cs_matuirity_day
 )
 
 select
-    *
+    a.*
 from output_aux_2 as a
-where spent_to_date > 0
-    and matuirity_day between 7 and 35    
-    and pay_matuirity between 7 and 21    
+where spent_to_date = 0
+    and matuirity_day between 0 and 35    
+    -- and pay_matuirity = 1    
     and past_disputer = 0 
-
-
+-- order by customer_service_interactions desc
+    -- and customer_service_interactions > 0 
 
 
 
