@@ -20,9 +20,11 @@ Rules ideally cover as much users as possible and detect as higher dispute rates
 - Users life time: You need to build rules that take into account where users are at in their lifetime value. You can play with some segments and get the learnings, then you
   can optimise the rule numbers for each group. 
 
-- Complexity relatively to data flexibility - We need to go piece by piece and spend time on things that do not generate any result. 
+- Complexity relatively to data flexibility - We need to go piece by piece and spend time on things that do not generate any result.
+- This means that we have to try some calculations based on intuition, and try multiple calculations with multiple parameters. This is not great, I am a bit frustrated. 
 
-- Rules shape - We want rules and we do not care if they overlap. 
+- Rules shape - We want rules and we do not care if they overlap.
+
 
 
 # Next step 
