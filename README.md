@@ -26,3 +26,6 @@ Rules ideally cover as much users as possible and detect as higher dispute rates
 
 
 # Next step 
+
+* Analyse hypotheses
+* Understand key factors and test out combinations to find disputers
