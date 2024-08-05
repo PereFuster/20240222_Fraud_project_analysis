@@ -1,42 +1,31 @@
+
 # Fraud_project_analysis
 
+The delivery are rules to find disputers and apply them. Regarding other things, I am not aligned and I am not updated. 
+What we are doing for the rules, it is a mix of business logic with some other research. 
 
 
-This project is about finding groups on user on which trying investigate further to prevent fraud payments from occurring. 
+# Find rules
 
-First conversation with Leo, says that there are two people working on this that I need to catch up with in terms of finding a solution. 
-
-Furthermore, I need to catch up with Yang and Lu in order to be able to be able to load the data directly from our system. 
-
-
-Problem statement: It seems its about finding an approach to rank users, or payments. Give them as score, to then
-be able to utilise different techiniques. Furthermore, we discuss the concept of fraud, which is not clear. Is it anytime a payment is 
-not materialised in app revenue? 
+Rules are a series of indications that can cover a group of users to have certain risks. 
+Rules ideally cover as much users as possible and detect as higher dispute rates as possible. 
 
 
+# Problem particularities
 
-# What you need to know before doing any piece of code ever 
+- Small dispute rates: We have to obtain high probabilities for very uncomon types of users. 
 
-## Sytax and program Structures 
+- Concentration of paid amount and amount disputed in a very very few users: If you can conver this then you're done. You can play with some groups of high payers. 
 
-- Understand how Python works 
+- Users life time: You need to build rules that take into account where users are at in their lifetime value. You can play with some segments and get the learnings, then you
+  can optimise the rule numbers for each group. 
 
-- Know the fundamentals 
+- Complexity relatively to data flexibility - We need to go piece by piece and spend time on things that do not generate any result. 
 
-- Write basic code 
-
-- Have all the tools necessary to solve the problem at hand. 
+- Rules shape - We want rules and we do not care if they overlap. 
 
 
 # Next step 
 
-1. Find good rules 
-2. Generate clarity around the project 
-
-- Results from the customer interaction data. 
-
-
-
-- Results from the Bundle ID data. 
-
-- Results from the profiling data. 
+* Analyse hypotheses
+* Understand key factors and test out combinations to find disputers
